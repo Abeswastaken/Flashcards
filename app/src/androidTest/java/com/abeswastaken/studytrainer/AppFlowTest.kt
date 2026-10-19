@@ -2,6 +2,9 @@ package com.abeswastaken.studytrainer
 
 import android.content.Context
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
+import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.assertTextEquals
@@ -41,6 +44,19 @@ class AppFlowTest {
     // Unmerged tree: the card's text sits inside its clickable, which merges child tags away.
     private fun waitForTag(tag: String) = compose.waitUntil(15_000) {
         runCatching { compose.onNodeWithTag(tag, useUnmergedTree = true).fetchSemanticsNode() }.isSuccess
+    }
+
+    // Like waitUntil, but a timeout says what was on screen.
+    private fun waitOrDump(what: String, condition: () -> Boolean) {
+        try {
+            compose.waitUntil(15_000, condition)
+        } catch (e: Throwable) {
+            val texts = runCatching {
+                compose.onAllNodes(SemanticsMatcher("any") { true }, useUnmergedTree = true).fetchSemanticsNodes()
+                    .mapNotNull { it.config.getOrNull(SemanticsProperties.Text)?.joinToString(" ") }
+            }.getOrElse { listOf("(no tree: ${it.message})") }
+            throw AssertionError("Timed out waiting for $what. Screen: $texts", e)
+        }
     }
 
     @Test fun studyQuizAndResumeAfterClose() {
@@ -97,11 +113,10 @@ class AppFlowTest {
             .setAction(android.content.Intent.ACTION_VIEW)
             .setDataAndType(android.net.Uri.fromFile(file), "application/json")
         ActivityScenario.launch<MainActivity>(intent).use {
-            compose.waitUntil(15_000) {
-                runCatching { compose.onNodeWithText("A Test Course", substring = true).fetchSemanticsNode() }.isSuccess
+            // The "Added …" notice shows before the course switches, so wait for the new deck itself.
+            waitOrDump("the imported deck") {
+                runCatching { compose.onNodeWithTag("fc-counter").assertTextEquals("1 / 1") }.isSuccess
             }
-            waitForTag("fc-counter")
-            compose.onNodeWithTag("fc-counter").assertTextEquals("1 / 1")
             compose.onNodeWithTag("card").tap()
             waitForTag("fc-ref")
         }
