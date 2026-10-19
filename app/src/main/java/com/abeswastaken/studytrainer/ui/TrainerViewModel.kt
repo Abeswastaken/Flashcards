@@ -110,7 +110,7 @@ class TrainerViewModel(app: Application) : AndroidViewModel(app) {
         quiz = aq?.let { runCatching { json.decodeFromString(ActiveQuiz.serializer(), it.json) }.getOrNull() }
             ?.takeIf { q -> q.pool.all { c.question(it) != null } }
         if (quizChapter != com.abeswastaken.studytrainer.core.ALL_CHAPTERS && quizChapter !in c.chapters) {
-            setQuizChapter(com.abeswastaken.studytrainer.core.ALL_CHAPTERS)
+            chooseQuizChapter(com.abeswastaken.studytrainer.core.ALL_CHAPTERS)
         }
     }
 
@@ -183,8 +183,8 @@ class TrainerViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---- Quiz ----
 
-    fun setQuizChapter(ch: String) { quizChapter = ch; prefs.quizChapter = ch }
-    fun setQuizLength(n: Int) { quizLength = n; prefs.quizLength = n }
+    fun chooseQuizChapter(ch: String) { quizChapter = ch; prefs.quizChapter = ch }
+    fun chooseQuizLength(n: Int) { quizLength = n; prefs.quizLength = n }
 
     private fun saveQuiz(q: ActiveQuiz?) {
         quiz = q

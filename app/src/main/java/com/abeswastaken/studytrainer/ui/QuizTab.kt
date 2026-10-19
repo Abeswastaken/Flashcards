@@ -64,13 +64,13 @@ private fun QuizSetup(vm: TrainerViewModel, course: Course) {
             Select(
                 "Chapter", vm.quizChapter.takeIf { it in course.chapters } ?: ALL_CHAPTERS,
                 listOf(ALL_CHAPTERS to "All chapters") + course.chapters.map { it to it },
-                vm::setQuizChapter, Modifier.fillMaxWidth(),
+                vm::chooseQuizChapter, Modifier.fillMaxWidth(),
             )
             Spacer(Modifier.height(10.dp))
             Select(
                 "Questions", vm.quizLength,
                 ActiveQuiz.LENGTHS.map { it to if (it == 0) "All" else it.toString() },
-                vm::setQuizLength, Modifier.fillMaxWidth(),
+                vm::chooseQuizLength, Modifier.fillMaxWidth(),
             )
             Spacer(Modifier.height(10.dp))
             Btn("Start quiz", vm::startQuiz, Modifier.fillMaxWidth(), BtnKind.PRIMARY)
