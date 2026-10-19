@@ -33,6 +33,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
@@ -80,6 +82,9 @@ class TrainerViewModel(app: Application) : AndroidViewModel(app) {
     val idx: Int by derivedStateOf { if (deck.isEmpty()) 0 else position.idx.coerceIn(0, deck.size - 1) }
     val stats by derivedStateOf { course?.let { c -> Stats.of(c, statuses, runs.map { it.run }) } }
 
+    // One load at a time: a course file opened at cold start must not be undone by the startup load.
+    private val loadLock = Mutex()
+
     init {
         viewModelScope.launch { loadCourses(prefs.courseId) }
     }
@@ -90,7 +95,7 @@ class TrainerViewModel(app: Application) : AndroidViewModel(app) {
         return Deck.build(c, chapter, CardFilter.of(position.filter), st, position.random, position.seed)
     }
 
-    private suspend fun loadCourses(preferId: String?) {
+    private suspend fun loadCourses(preferId: String?) = loadLock.withLock {
         val list = withContext(Dispatchers.IO) { store.loadAll() }
         courses = list
         val pick = list.firstOrNull { it.id == preferId } ?: list.firstOrNull()
