@@ -106,6 +106,11 @@ class CoreTest {
     }
 
     @Test(expected = IllegalArgumentException::class)
+    fun aCourseFileIsNotAProgressBackup() {
+        ProgressExport.decode(File(System.getProperty("courseDir"), "y3-c1-steam-systems.json").readText())
+    }
+
+    @Test(expected = IllegalArgumentException::class)
     fun rejectsAFileThatIsNotACourse() { Course.parse("""{"course":{"id":"","title":"x"}}""") }
 
     @Test fun cardPageIsOptional() {

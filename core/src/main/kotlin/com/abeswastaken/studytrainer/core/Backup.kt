@@ -2,6 +2,8 @@ package com.abeswastaken.studytrainer.core
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 
 /** Progress for one course. Card statuses use the artifact's "<chapter>|<term>" keys. */
 @Serializable
@@ -24,10 +26,11 @@ data class ProgressExport(
     companion object {
         val json = Json { ignoreUnknownKeys = true; prettyPrint = true; encodeDefaults = true }
 
+        /** Only a file that really says it's a Study Trainer backup ("app" key present) is accepted. */
         fun decode(text: String): ProgressExport {
-            val p = json.decodeFromString(serializer(), text)
-            require(p.app == "study-trainer") { "Not a Study Trainer progress file" }
-            return p
+            val raw = json.parseToJsonElement(text) as? JsonObject
+            require((raw?.get("app") as? JsonPrimitive)?.content == "study-trainer") { "Not a Study Trainer progress file" }
+            return json.decodeFromJsonElement(serializer(), raw!!)
         }
     }
 }
