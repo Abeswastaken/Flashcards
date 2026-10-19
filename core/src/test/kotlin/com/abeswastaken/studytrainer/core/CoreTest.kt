@@ -108,6 +108,15 @@ class CoreTest {
     @Test(expected = IllegalArgumentException::class)
     fun rejectsAFileThatIsNotACourse() { Course.parse("""{"course":{"id":"","title":"x"}}""") }
 
+    @Test fun cardPageIsOptional() {
+        val c = Course.parse("""{"course":{"id":"x","title":"X","version":2},
+            "flashcards":[{"chapter":"Chapter 1: A","term":"t","definition":"d","ref":"p. 12"},
+                          {"chapter":"Chapter 1: A","term":"u","definition":"e"}]}""")
+        assertEquals("p. 12", c.flashcards[0].ref)
+        assertNull(c.flashcards[1].ref)
+        assertEquals(2, c.meta.version)
+    }
+
     @Test fun shortChapterLabel() {
         assertEquals("Ch. 3: Low-Pressure Boilers", shortChapter("Chapter 3: Low-Pressure Boilers"))
         assertEquals("All chapters", shortChapter(ALL_CHAPTERS))

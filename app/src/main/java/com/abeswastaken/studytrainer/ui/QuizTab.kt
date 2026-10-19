@@ -189,6 +189,7 @@ private fun Feedback(course: Course, q: com.abeswastaken.studytrainer.core.QuizQ
                     buildAnnotatedString {
                         withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(card.term + ": ") }
                         append(card.definition)
+                        card.ref?.takeIf { it.isNotBlank() }?.let { append(" ($it)") }
                     },
                     color = p.muted, fontSize = 13.sp, lineHeight = 19.sp, modifier = Modifier.padding(top = 8.dp),
                 )

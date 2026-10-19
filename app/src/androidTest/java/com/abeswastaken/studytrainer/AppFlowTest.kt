@@ -32,6 +32,7 @@ class AppFlowTest {
     @Before fun fresh() {
         runBlocking { AppDatabase.get(ctx).clearAllTables() }
         Prefs(ctx).clear()
+        java.io.File(ctx.filesDir, "courses").deleteRecursively()
     }
 
     // Taps through semantics so a button below the fold still works.
@@ -83,6 +84,28 @@ class AppFlowTest {
             waitForTag("fc-counter")
             compose.onNodeWithTag("fc-counter").assertTextEquals("3 / 461")
         }
+    }
+
+    @Test fun openingACourseFileAddsIt() {
+        val file = java.io.File(ctx.cacheDir, "new-course.json")
+        file.writeText(
+            """{"course":{"id":"test-course","title":"A Test Course","version":1},
+               "flashcards":[{"chapter":"Chapter 1: Test","term":"widget","definition":"A test card.","ref":"p. 7"}],
+               "quizzes":[]}"""
+        )
+        val intent = android.content.Intent(ctx, MainActivity::class.java)
+            .setAction(android.content.Intent.ACTION_VIEW)
+            .setDataAndType(android.net.Uri.fromFile(file), "application/json")
+        ActivityScenario.launch<MainActivity>(intent).use {
+            compose.waitUntil(15_000) {
+                runCatching { compose.onNodeWithText("A Test Course", substring = true).fetchSemanticsNode() }.isSuccess
+            }
+            waitForTag("fc-counter")
+            compose.onNodeWithTag("fc-counter").assertTextEquals("1 / 1")
+            compose.onNodeWithTag("card").tap()
+            waitForTag("fc-ref")
+        }
+        assertEquals(true, java.io.File(ctx.filesDir, "courses/test-course.json").exists())
     }
 
     @Test fun finishingAQuizLogsItInHistory() {

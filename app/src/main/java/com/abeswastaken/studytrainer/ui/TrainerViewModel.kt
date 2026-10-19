@@ -248,12 +248,27 @@ class TrainerViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---- Courses and backup ----
 
-    fun importCourse(uri: Uri) = viewModelScope.launch {
-        val result = withContext(Dispatchers.IO) {
-            runCatching { store.import(readText(uri)) }
+    /** A progress file waiting for the user to confirm it may replace what's on the phone. */
+    var pendingProgress by mutableStateOf<Uri?>(null)
+
+    fun importCourse(uri: Uri) = openFile(uri)
+
+    /**
+     * Opens a .json from the ⋮ menu, from tapping it in Files/Drive, or from Share.
+     * A course file is added straight away; a progress backup asks first.
+     */
+    fun openFile(uri: Uri) = viewModelScope.launch {
+        val text = withContext(Dispatchers.IO) { runCatching { readText(uri) } }.getOrElse {
+            notice = "Couldn't open that file: ${it.message}"
+            return@launch
         }
+        if (runCatching { ProgressExport.decode(text) }.isSuccess) {
+            pendingProgress = uri
+            return@launch
+        }
+        val result = withContext(Dispatchers.IO) { runCatching { store.import(text) } }
         result.onSuccess { c ->
-            notice = "Added ${c.meta.title}: ${c.flashcards.size} cards, ${c.quizzes.size} questions."
+            notice = "Added ${c.meta.title}: ${c.chapters.size} chapters, ${c.flashcards.size} cards, ${c.quizzes.size} questions."
             loadCourses(c.id)
         }.onFailure { notice = "Couldn't import that course: ${it.message}" }
     }
