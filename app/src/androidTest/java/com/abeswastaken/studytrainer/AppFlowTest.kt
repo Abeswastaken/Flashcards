@@ -37,15 +37,16 @@ class AppFlowTest {
     // Taps through semantics so a button below the fold still works.
     private fun SemanticsNodeInteraction.tap() = performSemanticsAction(SemanticsActions.OnClick)
 
+    // Unmerged tree: the card's text sits inside its clickable, which merges child tags away.
     private fun waitForTag(tag: String) = compose.waitUntil(15_000) {
-        runCatching { compose.onNodeWithTag(tag).fetchSemanticsNode() }.isSuccess
+        runCatching { compose.onNodeWithTag(tag, useUnmergedTree = true).fetchSemanticsNode() }.isSuccess
     }
 
     @Test fun studyQuizAndResumeAfterClose() {
         ActivityScenario.launch(MainActivity::class.java).use {
             waitForTag("fc-counter")
             compose.onNodeWithTag("fc-counter").assertTextEquals("1 / 461")
-            compose.onNodeWithTag("fc-def").assertExists()
+            compose.onNodeWithTag("fc-def", useUnmergedTree = true).assertExists()
 
             compose.onNodeWithTag("card").tap()
             waitForTag("fc-term")
