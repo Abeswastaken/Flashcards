@@ -100,8 +100,10 @@ class AppFlowTest {
             compose.waitUntil(15_000) {
                 runCatching { compose.onNodeWithText("A Test Course", substring = true).fetchSemanticsNode() }.isSuccess
             }
-            waitForTag("fc-counter")
-            compose.onNodeWithTag("fc-counter").assertTextEquals("1 / 1")
+            // The "Added …" notice shows before the course switches, so wait for the new deck itself.
+            compose.waitUntil(15_000) {
+                runCatching { compose.onNodeWithTag("fc-counter").assertTextEquals("1 / 1") }.isSuccess
+            }
             compose.onNodeWithTag("card").tap()
             waitForTag("fc-ref")
         }
