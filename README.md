@@ -12,12 +12,12 @@ First course: **Y3-C1 Steam Systems** (461 cards, 243 questions, 12 chapters).
 - **Resume:** every tap is saved right away. The app reopens on the same tab and card, and an unfinished quiz survives the app being closed. Quit (after a confirm) throws the quiz away.
 - **Theme:** ◐ cycles Auto → Light → Dark. This setting is per device.
 - **⋮ menu:**
-  - *Import course…* adds a course .json without a rebuild.
+  - *Import course…* adds a course .json without a rebuild. Tapping a course .json in Files or Drive, or sharing it to the app, does the same. A newer `version` of the same course replaces its cards and keeps progress, which is how new chapters get added.
   - *Export progress…* and *Import progress…* write and read one backup file.
   - Android's own backup also keeps the progress database.
 
 ## Courses are data
-A course is one JSON file (format in `docs/DECISION-MAP.md` §4). Bundled courses live in `app/src/main/assets/courses/`. Progress is stored per course id and keyed by `chapter|term` for cards and `chapter|question` for quiz questions. Adding a course never touches another course's progress, and a newer `version` of the same course keeps it. Course content is copied verbatim from the textbook, so it is never edited.
+A course is one JSON file (format in `docs/DECISION-MAP.md` §4). Flashcards may also carry an optional `ref` (textbook page), shown on the back of the card and in quiz explanations. Bundled courses live in `app/src/main/assets/courses/`. Progress is stored per course id and keyed by `chapter|term` for cards and `chapter|question` for quiz questions. Adding a course never touches another course's progress, and a newer `version` of the same course keeps it. Course content is copied verbatim from the textbook, so it is never edited.
 
 ## Build
 Builds run only in GitHub Actions. Each run does JVM tests, emulator tests, then signed debug and release APKs. Every push to `main` publishes a Release `v1.0.<run>`. The signing key is `app/debug.keystore`, committed on purpose so updates install over the old app. Don't change `applicationId`.

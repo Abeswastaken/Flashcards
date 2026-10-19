@@ -173,6 +173,9 @@ private fun FlipCard(card: Flashcard?, status: CardStatus?, flipped: Boolean, em
                 if (back) {
                     Text(card.term, color = p.text, fontSize = 24.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
                         modifier = Modifier.testTag("fc-term"))
+                    card.ref?.takeIf { it.isNotBlank() }?.let {
+                        Text(it, color = p.muted, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp).testTag("fc-ref"))
+                    }
                 } else {
                     Text(card.definition, color = p.text, fontSize = 16.sp, lineHeight = 24.sp, textAlign = TextAlign.Center,
                         modifier = Modifier.testTag("fc-def"))

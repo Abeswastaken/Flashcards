@@ -36,7 +36,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import android.net.Uri
 import java.time.LocalDate
 
 @Composable
@@ -75,7 +74,6 @@ private fun Header(vm: TrainerViewModel) {
     val p = LocalPalette.current
     var menu by remember { mutableStateOf(false) }
     var coursesOpen by remember { mutableStateOf(false) }
-    var pendingProgress by remember { mutableStateOf<Uri?>(null) }
 
     val importCourse = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let { vm.importCourse(it) }
@@ -84,12 +82,12 @@ private fun Header(vm: TrainerViewModel) {
         uri?.let { vm.exportProgress(it) }
     }
     val importProgress = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        pendingProgress = uri
+        if (uri != null) vm.pendingProgress = uri
     }
-    pendingProgress?.let { uri ->
+    vm.pendingProgress?.let { uri ->
         Confirm(
             "Replace the progress on this phone with the progress in that file? Courses in the file are overwritten.",
-            "Replace", onYes = { vm.importProgress(uri) }, onDismiss = { pendingProgress = null },
+            "Replace", onYes = { vm.importProgress(uri) }, onDismiss = { vm.pendingProgress = null },
         )
     }
 

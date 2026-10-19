@@ -1,6 +1,9 @@
 package com.abeswastaken.studytrainer.ui
 
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
+import androidx.core.content.IntentCompat
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
@@ -23,5 +26,21 @@ class MainActivity : ComponentActivity() {
             }
             TrainerTheme(vm.theme) { TrainerApp(vm) }
         }
+        if (savedInstanceState == null) openFrom(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        openFrom(intent)
+    }
+
+    /** A course file tapped in Files/Drive (VIEW) or shared to the app (SEND) gets imported. */
+    private fun openFrom(intent: Intent?) {
+        val uri = when (intent?.action) {
+            Intent.ACTION_VIEW -> intent.data
+            Intent.ACTION_SEND -> IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)
+            else -> null
+        } ?: return
+        vm.openFile(uri)
     }
 }

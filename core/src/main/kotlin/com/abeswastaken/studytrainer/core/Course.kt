@@ -21,7 +21,13 @@ data class CourseMeta(
 )
 
 @Serializable
-data class Flashcard(val chapter: String, val term: String, val definition: String) {
+data class Flashcard(
+    val chapter: String,
+    val term: String,
+    val definition: String,
+    /** Optional textbook page, e.g. "p. 12". Added from the chapter text; the card's words never change. */
+    val ref: String? = null,
+) {
     /** Same key the artifact uses: "<chapter>|<term>". */
     val key: String get() = "$chapter|$term"
 }
