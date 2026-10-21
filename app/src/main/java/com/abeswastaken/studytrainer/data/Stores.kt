@@ -24,6 +24,9 @@ class Prefs(context: Context) {
     var quizLength: Int
         get() = sp.getInt("quiz_length", 20)
         set(v) = sp.edit().putInt("quiz_length", v).apply()
+    var quizMixed: Boolean
+        get() = sp.getBoolean("quiz_mixed", false)
+        set(v) = sp.edit().putBoolean("quiz_mixed", v).apply()
 
     fun clear() = sp.edit().clear().commit()
 }

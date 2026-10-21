@@ -26,11 +26,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.abeswastaken.studytrainer.core.ALL_CHAPTERS
+import com.abeswastaken.studytrainer.core.ChapterScope
+import com.abeswastaken.studytrainer.core.Course
+import com.abeswastaken.studytrainer.core.shortChapter
 
 enum class BtnKind { NORMAL, PRIMARY, GHOST, GOOD, BAD }
 
@@ -167,3 +172,41 @@ fun Pill(text: String, bg: Color, fg: Color, modifier: Modifier = Modifier, bord
 }
 
 val Gap8 = Arrangement.spacedBy(8.dp)
+
+private const val PICK_RANGE = "__pick_range__"
+
+/** Chapter dropdown with "All chapters", each chapter, and "Chapter range…" (e.g. Ch. 1–4). */
+@Composable
+fun ChapterPicker(course: Course, scope: String, onSelect: (String) -> Unit, modifier: Modifier = Modifier) {
+    val value = if (ChapterScope.isValid(course, scope)) scope else ALL_CHAPTERS
+    val isRange = ChapterScope.ends(value) != null
+    var picking by remember { mutableStateOf(false) }
+    val options = buildList {
+        add(ALL_CHAPTERS to "All chapters")
+        if (isRange) add(value to ChapterScope.label(value))
+        add(PICK_RANGE to "Chapter range…")
+        course.chapters.forEach { add(it to it) }
+    }
+    Select("Chapter", value, options, { if (it == PICK_RANGE) picking = true else onSelect(it) }, modifier)
+    if (picking) {
+        val (startFrom, startTo) = ChapterScope.ends(value)
+            ?: ((value.takeIf { it in course.chapters } ?: course.chapters.first()) to course.chapters.last())
+        var from by remember { mutableStateOf(startFrom) }
+        var to by remember { mutableStateOf(startTo) }
+        val labels = course.chapters.map { it to shortChapter(it) }
+        AlertDialog(
+            onDismissRequest = { picking = false },
+            title = { Text("Chapter range") },
+            text = {
+                Column(verticalArrangement = Gap8) {
+                    Select("From", from, labels, { from = it }, Modifier.fillMaxWidth().testTag("range-from"))
+                    Select("To", to, labels, { to = it }, Modifier.fillMaxWidth().testTag("range-to"))
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { picking = false; onSelect(ChapterScope.range(from, to)) }, Modifier.testTag("range-ok")) { Text("Use range") }
+            },
+            dismissButton = { TextButton(onClick = { picking = false }) { Text("Cancel") } },
+        )
+    }
+}

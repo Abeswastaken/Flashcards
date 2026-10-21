@@ -58,6 +58,9 @@ class Course(val meta: CourseMeta, flashcards: List<Flashcard>, quizzes: List<Qu
     private val quizByKey = this.quizzes.associateBy { it.key }
     fun question(key: String): QuizQuestion? = quizByKey[key]
 
+    private val cardByKey = this.flashcards.associateBy { it.key }
+    fun card(key: String): Flashcard? = cardByKey[key]
+
     /** Lowercased term -> first card with that term (the artifact's termIndex). */
     val termIndex: Map<String, Flashcard> = buildMap {
         for (c in this@Course.flashcards) putIfAbsent(c.term.lowercase().trim(), c)

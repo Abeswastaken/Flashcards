@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.sp
 import com.abeswastaken.studytrainer.core.ALL_CHAPTERS
 import com.abeswastaken.studytrainer.core.CardFilter
 import com.abeswastaken.studytrainer.core.CardStatus
+import com.abeswastaken.studytrainer.core.ChapterScope
 import com.abeswastaken.studytrainer.core.Course
 import com.abeswastaken.studytrainer.core.Deck
 import com.abeswastaken.studytrainer.core.Flashcard
@@ -61,7 +62,11 @@ fun FlashTab(vm: TrainerViewModel, course: Course) {
     var flipped by remember(card?.key, idx) { mutableStateOf(false) }
 
     if (confirmReset) {
-        val scope = if (pos.chapter == ALL_CHAPTERS) "ALL chapters" else pos.chapter
+        val scope = when {
+            pos.chapter == ALL_CHAPTERS || !ChapterScope.isValid(course, pos.chapter) -> "ALL chapters"
+            ChapterScope.ends(pos.chapter) != null -> ChapterScope.label(pos.chapter)
+            else -> pos.chapter
+        }
         Confirm("Reset known/learning for $scope?", "Reset", onYes = { vm.resetDeck() }, onDismiss = { confirmReset = false })
     }
 
@@ -69,11 +74,7 @@ fun FlashTab(vm: TrainerViewModel, course: Course) {
         Panel {
             Column {
                 Row(horizontalArrangement = Gap8) {
-                    Select(
-                        "Chapter", pos.chapter.takeIf { it in course.chapters } ?: ALL_CHAPTERS,
-                        listOf(ALL_CHAPTERS to "All chapters") + course.chapters.map { it to it },
-                        vm::setChapter, Modifier.weight(2f),
-                    )
+                    ChapterPicker(course, pos.chapter, vm::setChapter, Modifier.weight(2f))
                     Select("Show", filter, CardFilter.entries.map { it to it.label }, vm::setFilter, Modifier.weight(1.2f))
                 }
                 Row(Modifier.padding(top = 10.dp), horizontalArrangement = Gap8, verticalAlignment = Alignment.CenterVertically) {

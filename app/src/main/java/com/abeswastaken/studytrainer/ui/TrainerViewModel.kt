@@ -11,6 +11,7 @@ import androidx.lifecycle.viewModelScope
 import com.abeswastaken.studytrainer.core.ActiveQuiz
 import com.abeswastaken.studytrainer.core.CardFilter
 import com.abeswastaken.studytrainer.core.CardStatus
+import com.abeswastaken.studytrainer.core.ChapterScope
 import com.abeswastaken.studytrainer.core.Course
 import com.abeswastaken.studytrainer.core.CourseProgress
 import com.abeswastaken.studytrainer.core.Deck
@@ -74,6 +75,7 @@ class TrainerViewModel(app: Application) : AndroidViewModel(app) {
     var theme by mutableStateOf(prefs.theme); private set
     var quizChapter by mutableStateOf(prefs.quizChapter); private set
     var quizLength by mutableStateOf(prefs.quizLength); private set
+    var quizMixed by mutableStateOf(prefs.quizMixed); private set
     /** One-line notice shown in a snackbar. */
     var notice by mutableStateOf<String?>(null)
 
@@ -91,7 +93,7 @@ class TrainerViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun buildDeck(st: Map<String, CardStatus>): List<Flashcard> {
         val c = course ?: return emptyList()
-        val chapter = if (position.chapter in c.chapters) position.chapter else com.abeswastaken.studytrainer.core.ALL_CHAPTERS
+        val chapter = if (ChapterScope.isValid(c, position.chapter)) position.chapter else com.abeswastaken.studytrainer.core.ALL_CHAPTERS
         return Deck.build(c, chapter, CardFilter.of(position.filter), st, position.random, position.seed)
     }
 
@@ -113,8 +115,8 @@ class TrainerViewModel(app: Application) : AndroidViewModel(app) {
         position = pos?.let { Position(it.chapter, it.filter, it.idx, it.random, it.seed) } ?: Position()
         runs = rs.map { it.toRow() }
         quiz = aq?.let { runCatching { json.decodeFromString(ActiveQuiz.serializer(), it.json) }.getOrNull() }
-            ?.takeIf { q -> q.pool.all { c.question(it) != null } }
-        if (quizChapter != com.abeswastaken.studytrainer.core.ALL_CHAPTERS && quizChapter !in c.chapters) {
+            ?.takeIf { q -> q.fits(c) }
+        if (!ChapterScope.isValid(c, quizChapter)) {
             chooseQuizChapter(com.abeswastaken.studytrainer.core.ALL_CHAPTERS)
         }
     }
@@ -190,6 +192,7 @@ class TrainerViewModel(app: Application) : AndroidViewModel(app) {
 
     fun chooseQuizChapter(ch: String) { quizChapter = ch; prefs.quizChapter = ch }
     fun chooseQuizLength(n: Int) { quizLength = n; prefs.quizLength = n }
+    fun chooseQuizMixed(on: Boolean) { quizMixed = on; prefs.quizMixed = on }
 
     private fun saveQuiz(q: ActiveQuiz?) {
         quiz = q
@@ -202,8 +205,8 @@ class TrainerViewModel(app: Application) : AndroidViewModel(app) {
 
     fun startQuiz() {
         val c = course ?: return
-        val q = ActiveQuiz.start(c, quizChapter, quizLength)
-        if (q == null) { notice = "No questions for this chapter."; return }
+        val q = ActiveQuiz.start(c, quizChapter, quizLength, mixed = quizMixed)
+        if (q == null) { notice = if (quizMixed) "No cards or questions for this chapter." else "No questions for this chapter."; return }
         saveQuiz(q)
     }
 
@@ -213,13 +216,29 @@ class TrainerViewModel(app: Application) : AndroidViewModel(app) {
         saveQuiz(q.pick(c, option))
     }
 
+    /** Got it / Still learning on a card in a mixed run: marks the card like the Flashcards tab, then moves on. */
+    fun markQuizCard(known: Boolean) {
+        val c = course ?: return
+        val q = quiz ?: return
+        if (!q.currentIsCard || q.pickedNow != null) return
+        val key = ActiveQuiz.cardKey(q.pool[q.idx])
+        val status = if (known) CardStatus.KNOWN else CardStatus.LEARNING
+        statuses = statuses + (key to status)
+        write { dao.putStatus(CardStatusEntity(c.id, key, status.stored)) }
+        advance(c, q.markCard(known))
+    }
+
     fun nextQuestion() {
         val c = course ?: return
         val q = quiz ?: return
         if (q.pickedNow == null) return
+        advance(c, q)
+    }
+
+    private fun advance(c: Course, q: ActiveQuiz) {
         val n = q.next()
         saveQuiz(n)
-        if (n.finished && !n.reviewing) {
+        if (n.finished && !n.reviewing && n.questionCount > 0) {
             val run = n.toRun(c, System.currentTimeMillis())
             val e = QuizRunEntity(
                 courseId = c.id, date = run.date, chapter = run.chapter, score = run.score, total = run.total,

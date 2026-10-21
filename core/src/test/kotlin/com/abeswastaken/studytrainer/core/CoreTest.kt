@@ -122,6 +122,55 @@ class CoreTest {
         assertEquals(2, c.meta.version)
     }
 
+    @Test fun chapterRangeCoversEveryChapterBetween() {
+        val ch = course.chapters
+        val r = ChapterScope.range(ch[0], ch[3])
+        assertEquals(ch.subList(0, 4), ChapterScope.chapters(course, r))
+        assertEquals(ch.subList(0, 4), ChapterScope.chapters(course, ChapterScope.range(ch[3], ch[0]))) // reversed ends
+        assertEquals("Ch. 1–4", ChapterScope.label(r))
+        assertEquals(ch[2], ChapterScope.range(ch[2], ch[2])) // a one-chapter range is just that chapter
+        assertTrue(ChapterScope.isValid(course, r))
+        assertTrue(!ChapterScope.isValid(course, ChapterScope.range(ch[0], "Chapter 99: Gone")))
+        val expected = course.flashcards.count { it.chapter in ch.subList(0, 4) }
+        assertEquals(expected, Deck.build(course, r, CardFilter.ALL, emptyMap(), false, 1).size)
+        val quiz = ActiveQuiz.start(course, r, 0, Random(1))!!
+        assertTrue(quiz.pool.all { course.question(it)!!.chapter in ch.subList(0, 4) })
+        assertEquals(course.quizzes.count { it.chapter in ch.subList(0, 4) }, quiz.pool.size)
+    }
+
+    @Test fun mixedRunAlternatesCardsAndQuestions() {
+        val q = ActiveQuiz.start(course, ALL_CHAPTERS, 20, Random(3), mixed = true)!!
+        assertEquals(20, q.pool.size)
+        assertEquals(10, q.cardCount)
+        assertEquals(10, q.questionCount)
+        assertTrue(!ActiveQuiz.isCard(q.pool[0]) && ActiveQuiz.isCard(q.pool[1]))
+        assertTrue(q.fits(course))
+
+        // Question right, card known, question wrong, card still learning...
+        var run = q.pick(course, course.question(q.pool[0])!!.correct).next()
+        assertEquals(run, run.pick(course, 0)) // can't answer a card item like a question
+        run = run.markCard(true).next()
+        run = run.pick(course, (course.question(run.pool[2])!!.correct + 1) % 4).next()
+        run = run.markCard(false).next()
+        assertEquals(1, run.score)
+        assertEquals(1, run.cardsKnown)
+        assertEquals(listOf(q.pool[2]), run.wrongKeys()) // only questions go to review
+        val logged = run.toRun(course, 0)
+        assertEquals(1, logged.score)
+        assertEquals(10, logged.total) // history counts the questions
+        assertEquals(1, logged.wrong.size)
+    }
+
+    @Test fun mixedRunFillsFromTheOtherSide() {
+        val ch = course.chapters[0]
+        val cards = course.flashcards.count { it.chapter == ch }
+        val qs = course.quizzes.count { it.chapter == ch }
+        val all = ActiveQuiz.start(course, ch, 0, Random(1), mixed = true)!!
+        assertEquals(cards + qs, all.pool.size)
+        val big = ActiveQuiz.start(course, ch, cards + qs + 50, Random(1), mixed = true)!!
+        assertEquals(cards + qs, big.pool.size)
+    }
+
     @Test fun shortChapterLabel() {
         assertEquals("Ch. 3: Low-Pressure Boilers", shortChapter("Chapter 3: Low-Pressure Boilers"))
         assertEquals("All chapters", shortChapter(ALL_CHAPTERS))
