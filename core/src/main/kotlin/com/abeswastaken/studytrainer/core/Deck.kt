@@ -55,7 +55,8 @@ object Deck {
         random: Boolean,
         seed: Long,
     ): List<Flashcard> {
-        var all = if (chapter == ALL_CHAPTERS) course.flashcards else course.flashcards.filter { it.chapter == chapter }
+        val chapters = ChapterScope.chapters(course, chapter).toSet()
+        var all = course.flashcards.filter { it.chapter in chapters }
         if (filter != CardFilter.ALL) {
             all = all.filter {
                 val st = statuses[it.key]

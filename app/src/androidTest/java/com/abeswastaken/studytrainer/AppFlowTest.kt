@@ -123,6 +123,46 @@ class AppFlowTest {
         assertEquals(true, java.io.File(ctx.filesDir, "courses/test-course.json").exists())
     }
 
+    @Test fun chapterRangeNarrowsTheDeck() {
+        val course = ctx.assets.open("courses/y3-c1-steam-systems.json").bufferedReader().use {
+            com.abeswastaken.studytrainer.core.Course.parse(it.readText())
+        }
+        val ch = course.chapters
+        val expected = course.flashcards.count { it.chapter in ch.subList(0, 4) }
+        ActivityScenario.launch(MainActivity::class.java).use {
+            waitForTag("fc-counter")
+            compose.onNodeWithText("All chapters").tap()
+            compose.onNodeWithText("Chapter range…").tap()
+            compose.onNodeWithText(com.abeswastaken.studytrainer.core.shortChapter(ch.last())).tap()
+            compose.onNodeWithText(com.abeswastaken.studytrainer.core.shortChapter(ch[3])).tap()
+            compose.onNodeWithTag("range-ok").tap()
+            waitOrDump("the Ch. 1–4 deck") {
+                runCatching { compose.onNodeWithTag("fc-counter").assertTextEquals("1 / $expected") }.isSuccess
+            }
+            compose.onNodeWithText("Ch. 1–4").assertExists()
+        }
+    }
+
+    @Test fun mixedRunHasCardsBetweenQuestions() {
+        ActivityScenario.launch(MainActivity::class.java).use {
+            waitForTag("fc-counter")
+            compose.onNodeWithTag("tab-QUIZ").tap()
+            compose.onNodeWithTag("q-mixed").tap()
+            compose.onNodeWithText("Start quiz").tap()
+            compose.onNodeWithTag("q-counter").assertTextEquals("Item 1 / 20")
+            compose.onNodeWithTag("opt0").tap()
+            waitForTag("feedback")
+            compose.onNodeWithTag("q-next").tap()
+            compose.onNodeWithTag("q-counter").assertTextEquals("Item 2 / 20")
+            compose.onNodeWithTag("qc-show").tap()
+            waitForTag("qc-term")
+            compose.onNodeWithTag("qc-known").tap()
+            compose.onNodeWithTag("q-counter").assertTextEquals("Item 3 / 20")
+        }
+        // The card marked in the quiz counts as known in the Flashcards tab too.
+        compose.waitUntil(10_000) { runBlocking { dao.statuses("y3-c1-steam-systems").size == 1 } }
+    }
+
     @Test fun finishingAQuizLogsItInHistory() {
         ActivityScenario.launch(MainActivity::class.java).use {
             waitForTag("fc-counter")

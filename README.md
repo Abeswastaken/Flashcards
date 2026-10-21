@@ -5,8 +5,8 @@ Flashcards and quizzes for UA apprenticeship coursework, as a sideloaded Android
 First course: **Y3-C1 Steam Systems** (461 cards, 243 questions, 12 chapters).
 
 ## Features
-- **Flashcards:** the definition is on the front and the term on the back. Tap or press Flip to turn a card, and swipe to move between cards. Filter by chapter and by All / Still learning / Not reviewed / Known. Random order uses a stored seed, so the order stays the same until you press Reshuffle. ✓ Got it and ✗ Still learning advance to the next card. Reset clears marks for the current deck.
-- **Quiz:** choose a chapter and a length (10/20/30/50/All). Multiple choice with instant feedback. A wrong answer shows the correct answer, the textbook reference and the matching flashcard. At the end you can choose Review wrong (not logged) or New quiz.
+- **Flashcards:** the definition is on the front and the term on the back. Tap or press Flip to turn a card, and swipe to move between cards. Filter by chapter (one, all, or a range such as Ch. 1–4) and by All / Still learning / Not reviewed / Known. Random order uses a stored seed, so the order stays the same until you press Reshuffle. ✓ Got it and ✗ Still learning advance to the next card. Reset clears marks for the current deck.
+- **Quiz:** choose a chapter or chapter range and a length (10/20/30/50/All). *Mix in flashcards* makes half the items flashcards between the questions: reveal the term, then ✓ Got it / ✗ Still learning, which marks the card just like the Flashcards tab. Only questions count toward the score and History. Multiple choice with instant feedback. A wrong answer shows the correct answer, the textbook reference and the matching flashcard. At the end you can choose Review wrong (not logged) or New quiz.
 - **History:** the last 100 runs per course. Tap a run to see what you missed, then retake just those questions.
 - **Stats:** known and learning counts, quiz average, and progress per chapter.
 - **Resume:** every tap is saved right away. The app reopens on the same tab and card, and an unfinished quiz survives the app being closed. Quit (after a confirm) throws the quiz away.
