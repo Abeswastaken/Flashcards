@@ -11,6 +11,7 @@ import androidx.lifecycle.viewModelScope
 import com.abeswastaken.studytrainer.core.ActiveQuiz
 import com.abeswastaken.studytrainer.core.CardFilter
 import com.abeswastaken.studytrainer.core.CardStatus
+import com.abeswastaken.studytrainer.core.ChapterScore
 import com.abeswastaken.studytrainer.core.ChapterScope
 import com.abeswastaken.studytrainer.core.Course
 import com.abeswastaken.studytrainer.core.CourseProgress
@@ -21,10 +22,14 @@ import com.abeswastaken.studytrainer.core.Miss
 import com.abeswastaken.studytrainer.core.Position
 import com.abeswastaken.studytrainer.core.ProgressExport
 import com.abeswastaken.studytrainer.core.QuizRun
+import com.abeswastaken.studytrainer.core.Review
+import com.abeswastaken.studytrainer.core.Srs
 import com.abeswastaken.studytrainer.core.Stats
 import com.abeswastaken.studytrainer.data.ActiveQuizEntity
 import com.abeswastaken.studytrainer.data.AppDatabase
+import com.abeswastaken.studytrainer.data.CardReviewEntity
 import com.abeswastaken.studytrainer.data.CardStatusEntity
+import com.abeswastaken.studytrainer.data.NoteEntity
 import com.abeswastaken.studytrainer.data.CourseStore
 import com.abeswastaken.studytrainer.data.PositionEntity
 import com.abeswastaken.studytrainer.data.Prefs
@@ -38,6 +43,8 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.MapSerializer
+import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
 
 /** One writer, in order, for the whole process: a later tap can never be overwritten by an earlier one. */
@@ -47,7 +54,7 @@ object Writer {
     val scope = CoroutineScope(SupervisorJob() + io)
 }
 
-enum class Tab(val label: String) { FLASH("Flashcards"), QUIZ("Quiz"), HISTORY("History"), STATS("Stats") }
+enum class Tab(val label: String) { HOME("Home"), FLASH("Cards"), QUIZ("Quiz"), HISTORY("History"), STATS("Stats") }
 
 /** A run as shown in History (the core run plus its row id). */
 data class RunRow(val id: Long, val run: QuizRun)
@@ -63,6 +70,7 @@ class TrainerViewModel(app: Application) : AndroidViewModel(app) {
     private val io = Writer.io
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     private val missList = ListSerializer(Miss.serializer())
+    private val chapterMap = MapSerializer(String.serializer(), ChapterScore.serializer())
 
     var loading by mutableStateOf(true); private set
     var courses by mutableStateOf<List<Course>>(emptyList()); private set
@@ -71,15 +79,22 @@ class TrainerViewModel(app: Application) : AndroidViewModel(app) {
     var position by mutableStateOf(Position()); private set
     var runs by mutableStateOf<List<RunRow>>(emptyList()); private set
     var quiz by mutableStateOf<ActiveQuiz?>(null); private set
-    var tab by mutableStateOf(Tab.entries.getOrElse(prefs.tab) { Tab.FLASH }); private set
+    var reviews by mutableStateOf<Map<String, Review>>(emptyMap()); private set
+    var notes by mutableStateOf<Map<String, String>>(emptyMap()); private set
+    /** The app opens on Home, the jumping-off point for every way to study. */
+    var tab by mutableStateOf(Tab.HOME); private set
     var theme by mutableStateOf(prefs.theme); private set
     var quizChapter by mutableStateOf(prefs.quizChapter); private set
     var quizLength by mutableStateOf(prefs.quizLength); private set
     var quizMixed by mutableStateOf(prefs.quizMixed); private set
+    var quizExam by mutableStateOf(prefs.quizExam); private set
     /** One-line notice shown in a snackbar. */
     var notice by mutableStateOf<String?>(null)
 
-    val deck: List<Flashcard> by derivedStateOf { buildDeck(statuses) }
+    /** Today as an epoch day, for spaced repetition. */
+    fun today(): Long = java.time.LocalDate.now().toEpochDay()
+    val dueKeys: Set<String> by derivedStateOf { course?.let { Srs.due(it, reviews, today()) } ?: emptySet() }
+    val deck: List<Flashcard> by derivedStateOf { buildDeck(statuses, dueKeys) }
     /** Current card index, kept inside the deck. */
     val idx: Int by derivedStateOf { if (deck.isEmpty()) 0 else position.idx.coerceIn(0, deck.size - 1) }
     val stats by derivedStateOf { course?.let { c -> Stats.of(c, statuses, runs.map { it.run }) } }
@@ -91,10 +106,10 @@ class TrainerViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { loadCourses(prefs.courseId) }
     }
 
-    private fun buildDeck(st: Map<String, CardStatus>): List<Flashcard> {
+    private fun buildDeck(st: Map<String, CardStatus>, due: Set<String>): List<Flashcard> {
         val c = course ?: return emptyList()
         val chapter = if (ChapterScope.isValid(c, position.chapter)) position.chapter else com.abeswastaken.studytrainer.core.ALL_CHAPTERS
-        return Deck.build(c, chapter, CardFilter.of(position.filter), st, position.random, position.seed)
+        return Deck.build(c, chapter, CardFilter.of(position.filter), st, position.random, position.seed, due)
     }
 
     private suspend fun loadCourses(preferId: String?) = loadLock.withLock {
@@ -109,6 +124,9 @@ class TrainerViewModel(app: Application) : AndroidViewModel(app) {
         val (st, pos, rs, aq) = withContext(io) {
             Quad(dao.statuses(c.id), dao.position(c.id), dao.runs(c.id), dao.activeQuiz(c.id))
         }
+        val (rv, nt) = withContext(io) { dao.reviews(c.id) to dao.notes(c.id) }
+        reviews = rv.associate { it.cardKey to Review(it.ease, it.interval, it.due, it.reps) }
+        notes = nt.associate { it.itemKey to it.text }
         course = c
         prefs.courseId = c.id
         statuses = st.mapNotNull { e -> CardStatus.of(e.status)?.let { e.cardKey to it } }.toMap()
@@ -125,8 +143,25 @@ class TrainerViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun QuizRunEntity.toRow() = RunRow(
         id,
-        QuizRun(date, chapter, score, total, runCatching { json.decodeFromString(missList, wrongJson) }.getOrDefault(emptyList()), retake),
+        QuizRun(
+            date, chapter, score, total, runCatching { json.decodeFromString(missList, wrongJson) }.getOrDefault(emptyList()), retake,
+            exam = exam,
+            byChapter = chaptersJson?.let { runCatching { json.decodeFromString(chapterMap, it) }.getOrNull() } ?: emptyMap(),
+        ),
     )
+
+    private fun QuizRun.toEntity(courseId: String) = QuizRunEntity(
+        courseId = courseId, date = date, chapter = chapter, score = score, total = total,
+        retake = retake, wrongJson = json.encodeToString(missList, wrong),
+        exam = exam, chaptersJson = if (byChapter.isEmpty()) null else json.encodeToString(chapterMap, byChapter),
+    )
+
+    /** Every Got it / Still learning, anywhere, also schedules the card's next review. */
+    private fun grade(courseId: String, cardKey: String, known: Boolean) {
+        val r = Srs.grade(reviews[cardKey], known, today())
+        reviews = reviews + (cardKey to r)
+        write { dao.putReview(CardReviewEntity(courseId, cardKey, r.ease, r.interval, r.due, r.reps)) }
+    }
 
     /** Writes outlive the screen: backing out right after a tap still saves it. */
     private fun write(block: suspend () -> Unit) {
@@ -173,11 +208,17 @@ class TrainerViewModel(app: Application) : AndroidViewModel(app) {
         val oldIdx = idx
         val card = old[oldIdx]
         val newStatuses = statuses + (card.key to status)
-        val newSize = buildDeck(newStatuses).size
         statuses = newStatuses
         write { dao.putStatus(CardStatusEntity(c.id, card.key, status.stored)) }
-        val filtered = CardFilter.of(position.filter) != CardFilter.ALL
-        savePosition(position.copy(idx = Deck.indexAfterMark(oldIdx, old.size, newSize, filtered)))
+        grade(c.id, card.key, status == CardStatus.KNOWN)
+        val newSize = buildDeck(newStatuses, Srs.due(c, reviews, today())).size
+        val filter = CardFilter.of(position.filter)
+        val newIdx = if (filter == CardFilter.DUE && newSize == old.size) {
+            (oldIdx + 1) % newSize // Still learning stays due today; move on rather than show it again at once
+        } else {
+            Deck.indexAfterMark(oldIdx, old.size, newSize, filter != CardFilter.ALL)
+        }
+        savePosition(position.copy(idx = newIdx))
     }
 
     /** Clears known/learning for the cards in the current deck. */
@@ -193,6 +234,20 @@ class TrainerViewModel(app: Application) : AndroidViewModel(app) {
     fun chooseQuizChapter(ch: String) { quizChapter = ch; prefs.quizChapter = ch }
     fun chooseQuizLength(n: Int) { quizLength = n; prefs.quizLength = n }
     fun chooseQuizMixed(on: Boolean) { quizMixed = on; prefs.quizMixed = on }
+    fun chooseQuizExam(on: Boolean) { quizExam = on; prefs.quizExam = on }
+
+    /** Home's Due today tile: the Cards tab showing only the cards due. */
+    fun openDue() {
+        savePosition(position.copy(filter = CardFilter.DUE.stored, chapter = com.abeswastaken.studytrainer.core.ALL_CHAPTERS, idx = 0))
+        selectTab(Tab.FLASH)
+    }
+
+    fun setNote(key: String, text: String) {
+        val c = course ?: return
+        val t = text.trim()
+        notes = if (t.isEmpty()) notes - key else notes + (key to t)
+        write { if (t.isEmpty()) dao.deleteNote(c.id, key) else dao.putNote(NoteEntity(c.id, key, t)) }
+    }
 
     private fun saveQuiz(q: ActiveQuiz?) {
         quiz = q
@@ -205,9 +260,39 @@ class TrainerViewModel(app: Application) : AndroidViewModel(app) {
 
     fun startQuiz() {
         val c = course ?: return
-        val q = ActiveQuiz.start(c, quizChapter, quizLength, mixed = quizMixed)
-        if (q == null) { notice = if (quizMixed) "No cards or questions for this chapter." else "No questions for this chapter."; return }
+        val q = ActiveQuiz.start(c, quizChapter, quizLength, mixed = quizMixed && !quizExam, exam = quizExam, now = System.currentTimeMillis())
+        if (q == null) { notice = if (quizMixed && !quizExam) "No cards or questions for this chapter." else "No questions for this chapter."; return }
         saveQuiz(q)
+    }
+
+    /** Home: an exam over the chosen chapters with the chosen length. */
+    fun startExam() {
+        chooseQuizExam(true)
+        startQuiz()
+        if (quiz != null) selectTab(Tab.QUIZ)
+    }
+
+    fun startWeak() {
+        val c = course ?: return
+        val q = ActiveQuiz.weak(c, runs.map { it.run }, statuses)
+        if (q == null) { notice = "No weak spots yet. Missed questions and Still learning cards show up here."; return }
+        saveQuiz(q)
+        selectTab(Tab.QUIZ)
+    }
+
+    fun startDrills() {
+        saveQuiz(ActiveQuiz.drills())
+        selectTab(Tab.QUIZ)
+    }
+
+    /** The exam clock ran out: finish and log it, unanswered questions counting as wrong. */
+    fun examTimeUp() {
+        val c = course ?: return
+        val q = quiz ?: return
+        if (!q.exam || q.finished) return
+        val done = q.timeUp()
+        saveQuiz(done)
+        log(c, done)
     }
 
     fun pick(option: Int) {
@@ -225,6 +310,7 @@ class TrainerViewModel(app: Application) : AndroidViewModel(app) {
         val status = if (known) CardStatus.KNOWN else CardStatus.LEARNING
         statuses = statuses + (key to status)
         write { dao.putStatus(CardStatusEntity(c.id, key, status.stored)) }
+        grade(c.id, key, known)
         advance(c, q.markCard(known))
     }
 
@@ -238,12 +324,12 @@ class TrainerViewModel(app: Application) : AndroidViewModel(app) {
     private fun advance(c: Course, q: ActiveQuiz) {
         val n = q.next()
         saveQuiz(n)
-        if (n.finished && !n.reviewing && n.questionCount > 0) {
-            val run = n.toRun(c, System.currentTimeMillis())
-            val e = QuizRunEntity(
-                courseId = c.id, date = run.date, chapter = run.chapter, score = run.score, total = run.total,
-                retake = run.retake, wrongJson = json.encodeToString(missList, run.wrong),
-            )
+        if (n.finished) log(c, n)
+    }
+
+    private fun log(c: Course, n: ActiveQuiz) {
+        if (n.logged) {
+            val e = n.toRun(c, System.currentTimeMillis()).toEntity(c.id)
             Writer.scope.launch {
                 dao.addRun(e, HISTORY_CAP)
                 val rows = dao.runs(c.id).map { it.toRow() }
@@ -307,6 +393,8 @@ class TrainerViewModel(app: Application) : AndroidViewModel(app) {
                         cards = dao.statuses(id).associate { it.cardKey to it.status },
                         position = pos?.let { Position(it.chapter, it.filter, it.idx, it.random, it.seed) },
                         runs = dao.runs(id).map { it.toRow().run },
+                        reviews = dao.reviews(id).associate { it.cardKey to Review(it.ease, it.interval, it.due, it.reps) },
+                        notes = dao.notes(id).associate { it.itemKey to it.text },
                     )
                 }
                 val text = ProgressExport(exportedAt = System.currentTimeMillis(), courses = all).encode()
@@ -326,12 +414,9 @@ class TrainerViewModel(app: Application) : AndroidViewModel(app) {
                         id,
                         cp.cards.mapNotNull { (k, v) -> CardStatus.of(v)?.let { CardStatusEntity(id, k, it.stored) } },
                         cp.position?.let { PositionEntity(id, it.chapter, it.filter, it.idx, it.random, it.seed) },
-                        cp.runs.sortedByDescending { it.date }.take(HISTORY_CAP).map { r ->
-                            QuizRunEntity(
-                                courseId = id, date = r.date, chapter = r.chapter, score = r.score, total = r.total,
-                                retake = r.retake, wrongJson = json.encodeToString(missList, r.wrong),
-                            )
-                        },
+                        cp.runs.sortedByDescending { it.date }.take(HISTORY_CAP).map { it.toEntity(id) },
+                        cp.reviews.map { (k, r) -> CardReviewEntity(id, k, r.ease, r.interval, r.due, r.reps) },
+                        cp.notes.map { (k, t) -> NoteEntity(id, k, t) },
                     )
                 }
                 p.courses.size

@@ -36,6 +36,35 @@ fun StatsTab(vm: TrainerViewModel, course: Course) {
                 Big(s.quizAvg?.let { "$it%" } ?: "—", "Quiz avg", Modifier.weight(1f))
             }
         }
+        if (s.accuracy.isNotEmpty()) {
+            Spacer(Modifier.height(SectionGap))
+            Panel {
+                Column {
+                    Text("Quiz accuracy by chapter", color = p.text, fontWeight = FontWeight.SemiBold)
+                    val weak = s.weakest
+                    Text(
+                        weak?.let { "Weakest: ${shortChapter(it.chapter)} (${it.percent}%)" }
+                            ?: "Answer at least ${com.abeswastaken.studytrainer.core.Stats.MIN_ANSWERED} questions in a chapter to rank it.",
+                        color = if (weak != null) p.bad else p.muted, fontSize = 12.sp,
+                        modifier = Modifier.padding(top = 2.dp, bottom = 10.dp).testTag("st-weakest"),
+                    )
+                    s.accuracy.forEach { a ->
+                        Column(Modifier.padding(bottom = 8.dp)) {
+                            Row(Modifier.fillMaxWidth()) {
+                                Text(shortChapter(a.chapter), color = p.text, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                                Text("${a.right}/${a.total} · ${a.percent}%", color = p.muted, fontSize = 12.sp)
+                            }
+                            Row(Modifier.fillMaxWidth().padding(top = 4.dp).height(6.dp).clip(RoundedCornerShape(999.dp)).background(p.surface2)) {
+                                if (a.right > 0) Box(Modifier.weight(a.right.toFloat()).fillMaxHeight().background(if (a.percent >= 70) p.good else p.warn))
+                                if (a.total - a.right > 0) Box(Modifier.weight((a.total - a.right).toFloat()).fillMaxHeight())
+                            }
+                        }
+                    }
+                    Text("From quizzes and exams taken since this version. Older runs don't have per-chapter results.",
+                        color = p.muted, fontSize = 11.sp)
+                }
+            }
+        }
         Spacer(Modifier.height(SectionGap))
         Panel {
             Column {

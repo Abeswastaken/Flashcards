@@ -11,6 +11,10 @@ data class CourseProgress(
     val cards: Map<String, String> = emptyMap(),
     val position: Position? = null,
     val runs: List<QuizRun> = emptyList(),
+    /** Spaced-repetition state per card key. */
+    val reviews: Map<String, Review> = emptyMap(),
+    /** Personal notes per card key or question key. */
+    val notes: Map<String, String> = emptyMap(),
 )
 
 /** The export file: every course's progress. Theme is per device and is not included. */

@@ -34,6 +34,8 @@ object ChapterScope {
 
     /** "All chapters", "Ch. 3: Low-Pressure Boilers", or "Ch. 1–4". */
     fun label(scope: String): String {
+        if (scope == Weak.SCOPE) return "Weak spots"
+        if (scope == Drills.SCOPE) return "Math drills"
         val (from, to) = ends(scope) ?: return shortChapter(scope)
         val n1 = number(from)
         val n2 = number(to)

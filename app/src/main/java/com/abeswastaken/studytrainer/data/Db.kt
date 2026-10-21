@@ -1,6 +1,7 @@
 package com.abeswastaken.studytrainer.data
 
 import android.content.Context
+import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
@@ -11,6 +12,8 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.Transaction
 import androidx.room.Upsert
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 
 // Every row is scoped by courseId so adding a course never touches another course's progress.
 
@@ -38,7 +41,25 @@ data class QuizRunEntity(
     val retake: Boolean,
     /** The missed questions as JSON (a list of core Miss). */
     val wrongJson: String,
+    @ColumnInfo(defaultValue = "0") val exam: Boolean = false,
+    /** Per-chapter results as JSON (core ChapterScore by chapter); null for runs from before v2. */
+    val chaptersJson: String? = null,
 )
+
+/** Spaced-repetition state for one card (core Review). */
+@Entity(tableName = "card_review", primaryKeys = ["courseId", "cardKey"])
+data class CardReviewEntity(
+    val courseId: String,
+    val cardKey: String,
+    val ease: Double,
+    val interval: Int,
+    val due: Long,
+    val reps: Int,
+)
+
+/** A personal note on a card or question, keyed like the course ("<chapter>|<term or question>"). */
+@Entity(tableName = "note", primaryKeys = ["courseId", "itemKey"])
+data class NoteEntity(val courseId: String, val itemKey: String, val text: String)
 
 /** The quiz in progress, as JSON (core ActiveQuiz). At most one per course. */
 @Entity(tableName = "active_quiz", primaryKeys = ["courseId"])
@@ -95,14 +116,36 @@ abstract class TrainerDao {
     @Query("DELETE FROM active_quiz WHERE courseId = :courseId")
     abstract suspend fun clearActiveQuiz(courseId: String)
 
+    @Query("SELECT * FROM card_review WHERE courseId = :courseId")
+    abstract suspend fun reviews(courseId: String): List<CardReviewEntity>
+
+    @Upsert abstract suspend fun putReview(e: CardReviewEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    abstract suspend fun putReviews(list: List<CardReviewEntity>)
+
+    @Query("SELECT * FROM note WHERE courseId = :courseId")
+    abstract suspend fun notes(courseId: String): List<NoteEntity>
+
+    @Upsert abstract suspend fun putNote(e: NoteEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    abstract suspend fun putNotes(list: List<NoteEntity>)
+
+    @Query("DELETE FROM note WHERE courseId = :courseId AND itemKey = :itemKey")
+    abstract suspend fun deleteNote(courseId: String, itemKey: String)
+
     @Query(
-        "SELECT courseId FROM card_status UNION SELECT courseId FROM position UNION SELECT courseId FROM quiz_run"
+        "SELECT courseId FROM card_status UNION SELECT courseId FROM position UNION SELECT courseId FROM quiz_run " +
+            "UNION SELECT courseId FROM card_review UNION SELECT courseId FROM note"
     )
     abstract suspend fun courseIdsWithProgress(): List<String>
 
     @Query("DELETE FROM card_status WHERE courseId = :courseId") abstract suspend fun clearStatuses(courseId: String)
     @Query("DELETE FROM position WHERE courseId = :courseId") abstract suspend fun clearPosition(courseId: String)
     @Query("DELETE FROM quiz_run WHERE courseId = :courseId") abstract suspend fun clearRuns(courseId: String)
+    @Query("DELETE FROM card_review WHERE courseId = :courseId") abstract suspend fun clearReviews(courseId: String)
+    @Query("DELETE FROM note WHERE courseId = :courseId") abstract suspend fun clearNotes(courseId: String)
 
     /** Import: replaces one course's progress in one step. */
     @Transaction
@@ -111,17 +154,25 @@ abstract class TrainerDao {
         statuses: List<CardStatusEntity>,
         position: PositionEntity?,
         runs: List<QuizRunEntity>,
+        reviews: List<CardReviewEntity> = emptyList(),
+        notes: List<NoteEntity> = emptyList(),
     ) {
         clearStatuses(courseId); clearPosition(courseId); clearRuns(courseId); clearActiveQuiz(courseId)
+        clearReviews(courseId); clearNotes(courseId)
         putStatuses(statuses)
         position?.let { putPosition(it) }
         insertRuns(runs)
+        putReviews(reviews)
+        putNotes(notes)
     }
 }
 
 @Database(
-    entities = [CardStatusEntity::class, PositionEntity::class, QuizRunEntity::class, ActiveQuizEntity::class],
-    version = 1,
+    entities = [
+        CardStatusEntity::class, PositionEntity::class, QuizRunEntity::class, ActiveQuizEntity::class,
+        CardReviewEntity::class, NoteEntity::class,
+    ],
+    version = 2,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -129,10 +180,28 @@ abstract class AppDatabase : RoomDatabase() {
 
     companion object {
         const val NAME = "trainer.db"
+
+        /** v2: spaced repetition, notes, and exam / per-chapter results on runs. Keeps all v1 progress. */
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE quiz_run ADD COLUMN `exam` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE quiz_run ADD COLUMN `chaptersJson` TEXT")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `card_review` (`courseId` TEXT NOT NULL, `cardKey` TEXT NOT NULL, " +
+                        "`ease` REAL NOT NULL, `interval` INTEGER NOT NULL, `due` INTEGER NOT NULL, `reps` INTEGER NOT NULL, " +
+                        "PRIMARY KEY(`courseId`, `cardKey`))"
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `note` (`courseId` TEXT NOT NULL, `itemKey` TEXT NOT NULL, `text` TEXT NOT NULL, " +
+                        "PRIMARY KEY(`courseId`, `itemKey`))"
+                )
+            }
+        }
         @Volatile private var instance: AppDatabase? = null
 
         fun get(context: Context): AppDatabase = instance ?: synchronized(this) {
             instance ?: Room.databaseBuilder(context.applicationContext, AppDatabase::class.java, NAME)
+                .addMigrations(MIGRATION_1_2)
                 .build().also { instance = it }
         }
     }
