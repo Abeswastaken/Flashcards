@@ -27,6 +27,8 @@ data class Flashcard(
     val definition: String,
     /** Optional textbook page, e.g. "p. 12". Added from the chapter text; the card's words never change. */
     val ref: String? = null,
+    /** Optional figure from the book, as a data URI ("data:image/png;base64,...") or bare base64. */
+    val image: String? = null,
 ) {
     /** Same key the artifact uses: "<chapter>|<term>". */
     val key: String get() = "$chapter|$term"
@@ -40,6 +42,8 @@ data class QuizQuestion(
     val options: List<String>,
     val correct: Int,
     val ref: String? = null,
+    /** Optional figure from the book the question refers to (data URI or bare base64). */
+    val image: String? = null,
 ) {
     val key: String get() = "$chapter|$question"
     val correctText: String get() = options.getOrElse(correct) { "" }

@@ -93,11 +93,13 @@ fun HistoryTab(vm: TrainerViewModel, course: Course) {
                         }, Modifier.fillMaxWidth().padding(bottom = 2.dp), BtnKind.GHOST)
                         r.wrong.forEach { w ->
                             Detail {
-                                Column {
-                                    Text(w.question, color = p.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                                    Text("You: ${w.pickedText.ifBlank { "—" }}", color = p.bad, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp))
-                                    Text("Correct: ${w.correctText}" + if (w.ref.isNotBlank()) "  (${w.ref})" else "",
-                                        color = p.good, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp))
+                                androidx.compose.foundation.text.selection.SelectionContainer {
+                                    Column {
+                                        Text(w.question, color = p.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                        Text("You: ${w.pickedText.ifBlank { "—" }}", color = p.bad, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp))
+                                        Text("Correct: ${w.correctText}" + if (w.ref.isNotBlank()) "  (${w.ref})" else "",
+                                            color = p.good, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp))
+                                    }
                                 }
                             }
                         }

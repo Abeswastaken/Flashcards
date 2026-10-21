@@ -12,6 +12,7 @@ import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -59,9 +60,16 @@ class AppFlowTest {
         }
     }
 
+    // The app opens on Home; most tests start on the Cards tab.
+    private fun openCards() {
+        waitForTag("home-continue")
+        compose.onNodeWithTag("tab-FLASH").tap()
+        waitForTag("fc-counter")
+    }
+
     @Test fun studyQuizAndResumeAfterClose() {
         ActivityScenario.launch(MainActivity::class.java).use {
-            waitForTag("fc-counter")
+            openCards()
             compose.onNodeWithTag("fc-counter").assertTextEquals("1 / 461")
             compose.onNodeWithTag("fc-def", useUnmergedTree = true).assertExists()
 
@@ -91,6 +99,9 @@ class AppFlowTest {
         assertEquals(2, runBlocking { dao.position("y3-c1-steam-systems")!!.idx })
 
         ActivityScenario.launch(MainActivity::class.java).use {
+            waitForTag("home-continue")
+            compose.onNodeWithTag("home-continue").assertTextContains("Resume quiz", substring = true)
+            compose.onNodeWithTag("tab-STATS").tap()
             waitForTag("st-known")
             compose.onNodeWithTag("st-known").assertTextEquals("1")
             compose.onNodeWithTag("tab-QUIZ").tap()
@@ -113,6 +124,8 @@ class AppFlowTest {
             .setAction(android.content.Intent.ACTION_VIEW)
             .setDataAndType(android.net.Uri.fromFile(file), "application/json")
         ActivityScenario.launch<MainActivity>(intent).use {
+            waitForTag("home-continue")
+            compose.onNodeWithTag("tab-FLASH").tap()
             // The "Added …" notice shows before the course switches, so wait for the new deck itself.
             waitOrDump("the imported deck") {
                 runCatching { compose.onNodeWithTag("fc-counter").assertTextEquals("1 / 1") }.isSuccess
@@ -130,7 +143,7 @@ class AppFlowTest {
         val ch = course.chapters
         val expected = course.flashcards.count { it.chapter in ch.subList(0, 4) }
         ActivityScenario.launch(MainActivity::class.java).use {
-            waitForTag("fc-counter")
+            openCards()
             compose.onNodeWithText("All chapters").tap()
             compose.onNodeWithText("Chapter range…").tap()
             compose.onNodeWithText(com.abeswastaken.studytrainer.core.shortChapter(ch.last())).tap()
@@ -145,7 +158,7 @@ class AppFlowTest {
 
     @Test fun mixedRunHasCardsBetweenQuestions() {
         ActivityScenario.launch(MainActivity::class.java).use {
-            waitForTag("fc-counter")
+            openCards()
             compose.onNodeWithTag("tab-QUIZ").tap()
             compose.onNodeWithTag("q-mixed").tap()
             compose.onNodeWithText("Start quiz").tap()
@@ -165,7 +178,7 @@ class AppFlowTest {
 
     @Test fun finishingAQuizLogsItInHistory() {
         ActivityScenario.launch(MainActivity::class.java).use {
-            waitForTag("fc-counter")
+            openCards()
             compose.onNodeWithTag("tab-QUIZ").tap()
             compose.onNodeWithText("Start quiz").tap()
             repeat(20) {
@@ -179,5 +192,56 @@ class AppFlowTest {
             compose.onNodeWithTag("run").tap()
             compose.onNodeWithText("Retake these", substring = true).assertExists()
         }
+    }
+
+    @Test fun examHidesAnswersUntilTheEnd() {
+        ActivityScenario.launch(MainActivity::class.java).use {
+            waitForTag("home-exam")
+            compose.onNodeWithTag("home-exam").tap()
+            waitForTag("q-start")
+            compose.onNodeWithTag("q-start").tap()
+            waitForTag("q-timer")
+            compose.onNodeWithTag("q-timer").assertTextContains("left", substring = true)
+            compose.onNodeWithTag("opt0").tap()
+            compose.onNodeWithTag("opt1").tap() // an exam pick can be changed
+            compose.onNodeWithTag("feedback", useUnmergedTree = true).assertDoesNotExist()
+            compose.onNodeWithTag("q-next").tap()
+            repeat(19) {
+                waitForTag("opt1")
+                compose.onNodeWithTag("opt1").tap()
+                compose.onNodeWithTag("q-next").tap()
+            }
+            waitForTag("q-final")
+            compose.onNodeWithText("By chapter").assertExists()
+        }
+        compose.waitUntil(10_000) { runBlocking { dao.runs("y3-c1-steam-systems").singleOrNull()?.exam == true } }
+        val run = runBlocking { dao.runs("y3-c1-steam-systems").single() }
+        assertEquals(20, run.total)
+        assertEquals(true, run.chaptersJson != null)
+    }
+
+    @Test fun notesReviewsAndWeakSpotsFromHome() {
+        ActivityScenario.launch(MainActivity::class.java).use {
+            openCards()
+            compose.onNodeWithText("✗ Still learning").tap()
+            compose.onNodeWithTag("fc-counter").assertTextEquals("2 / 461")
+            compose.onNodeWithTag("note-edit").tap()
+            compose.onNodeWithTag("note-field").performTextInput("check p. 90")
+            compose.onNodeWithTag("note-save").tap()
+            waitForTag("note-text")
+
+            compose.onNodeWithTag("tab-HOME").tap()
+            waitForTag("home-due")
+            compose.onNodeWithTag("home-due").assertTextContains("1 card to review", substring = true)
+            compose.onNodeWithTag("home-weak").tap()
+            waitForTag("q-counter")
+            compose.onNodeWithTag("q-counter").assertTextEquals("Item 1 / 1")
+            compose.onNodeWithTag("qc-show").tap()
+            waitForTag("qc-term")
+        }
+        compose.waitUntil(10_000) {
+            runBlocking { dao.reviews("y3-c1-steam-systems").size == 1 && dao.notes("y3-c1-steam-systems").size == 1 }
+        }
+        assertEquals("check p. 90", runBlocking { dao.notes("y3-c1-steam-systems").single().text })
     }
 }

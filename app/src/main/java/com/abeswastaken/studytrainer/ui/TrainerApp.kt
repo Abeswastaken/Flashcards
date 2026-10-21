@@ -59,6 +59,7 @@ fun TrainerApp(vm: TrainerViewModel) {
                     color = p.muted, modifier = Modifier.align(Alignment.Center).padding(24.dp),
                 )
                 else -> when (vm.tab) {
+                    Tab.HOME -> HomeTab(vm, course)
                     Tab.FLASH -> FlashTab(vm, course)
                     Tab.QUIZ -> QuizTab(vm, course)
                     Tab.HISTORY -> HistoryTab(vm, course)

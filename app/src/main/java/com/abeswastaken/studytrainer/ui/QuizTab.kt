@@ -16,12 +16,16 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -41,9 +45,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.abeswastaken.studytrainer.core.ActiveQuiz
 import com.abeswastaken.studytrainer.core.Course
+import com.abeswastaken.studytrainer.core.Drills
 import com.abeswastaken.studytrainer.core.Explain
 import com.abeswastaken.studytrainer.core.Flashcard
 import com.abeswastaken.studytrainer.core.QuizText
+import com.abeswastaken.studytrainer.core.shortChapter
+import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 
 @Composable
@@ -52,7 +59,7 @@ fun QuizTab(vm: TrainerViewModel, course: Course) {
     Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 14.dp)) {
         when {
             quiz == null -> QuizSetup(vm, course)
-            quiz.finished -> QuizDone(vm, quiz)
+            quiz.finished -> QuizDone(vm, course, quiz)
             else -> QuizRunning(vm, course, quiz)
         }
         Footer(course.meta.source.ifBlank { course.meta.title })
@@ -66,27 +73,37 @@ private fun QuizSetup(vm: TrainerViewModel, course: Course) {
             ChapterPicker(course, vm.quizChapter, vm::chooseQuizChapter, Modifier.fillMaxWidth())
             Spacer(Modifier.height(10.dp))
             Select(
-                if (vm.quizMixed) "Items" else "Questions", vm.quizLength,
+                if (vm.quizMixed && !vm.quizExam) "Items" else "Questions", vm.quizLength,
                 ActiveQuiz.LENGTHS.map { it to if (it == 0) "All" else it.toString() },
                 vm::chooseQuizLength, Modifier.fillMaxWidth(),
             )
             val p = LocalPalette.current
-            Row(
-                Modifier.padding(top = 6.dp).clip(RoundedCornerShape(8.dp)).clickable { vm.chooseQuizMixed(!vm.quizMixed) }
-                    .testTag("q-mixed"),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Checkbox(
-                    vm.quizMixed, { vm.chooseQuizMixed(it) },
-                    colors = CheckboxDefaults.colors(checkedColor = p.accent, checkmarkColor = p.accentInk, uncheckedColor = p.muted),
-                )
-                Column(Modifier.padding(end = 6.dp)) {
-                    Text("Mix in flashcards", color = p.text, fontSize = 13.sp)
-                    Text("Half the items are flashcards, between the questions.", color = p.muted, fontSize = 11.sp)
-                }
+            Toggle(vm.quizExam, vm::chooseQuizExam, "q-exam", "Exam mode",
+                "Timed (1 minute per question), no answers shown until the end.")
+            if (!vm.quizExam) {
+                Toggle(vm.quizMixed, vm::chooseQuizMixed, "q-mixed", "Mix in flashcards",
+                    "Half the items are flashcards, between the questions.")
             }
             Spacer(Modifier.height(10.dp))
-            Btn("Start quiz", vm::startQuiz, Modifier.fillMaxWidth(), BtnKind.PRIMARY)
+            Btn(if (vm.quizExam) "Start exam" else "Start quiz", vm::startQuiz, Modifier.fillMaxWidth().testTag("q-start"), BtnKind.PRIMARY)
+        }
+    }
+}
+
+@Composable
+private fun Toggle(on: Boolean, set: (Boolean) -> Unit, tag: String, title: String, hint: String) {
+    val p = LocalPalette.current
+    Row(
+        Modifier.padding(top = 6.dp).clip(RoundedCornerShape(8.dp)).clickable { set(!on) }.testTag(tag),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Checkbox(
+            on, { set(it) },
+            colors = CheckboxDefaults.colors(checkedColor = p.accent, checkmarkColor = p.accentInk, uncheckedColor = p.muted),
+        )
+        Column(Modifier.padding(end = 6.dp)) {
+            Text(title, color = p.text, fontSize = 13.sp)
+            Text(hint, color = p.muted, fontSize = 11.sp)
         }
     }
 }
@@ -99,6 +116,17 @@ private fun QuizRunning(vm: TrainerViewModel, course: Course, quiz: ActiveQuiz) 
     if (confirmQuit) {
         Confirm("Quit this quiz? Your progress won't be saved.", "Quit", onYes = vm::endQuiz, onDismiss = { confirmQuit = false })
     }
+    // The exam clock: ticks each second and ends the exam at 0, also after reopening the app.
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    if (quiz.exam) {
+        LaunchedEffect(quiz.startedAt) {
+            while (true) {
+                now = System.currentTimeMillis()
+                if (quiz.secondsLeft(now) == 0L) { vm.examTimeUp(); break }
+                delay(1000)
+            }
+        }
+    }
 
     Panel(pad = 12) {
         Column {
@@ -106,7 +134,13 @@ private fun QuizRunning(vm: TrainerViewModel, course: Course, quiz: ActiveQuiz) 
             Row(Modifier.fillMaxWidth().padding(top = 8.dp)) {
                 Text((if (quiz.mixed) "Item" else "Question") + " ${quiz.idx + 1} / ${quiz.pool.size}", color = p.muted, fontSize = 12.sp,
                     modifier = Modifier.weight(1f).testTag("q-counter"))
-                Text("Score: ${quiz.score}", color = p.muted, fontSize = 12.sp)
+                val left = quiz.secondsLeft(now)
+                if (left != null) {
+                    Text("⏱ ${clock(left)} left", color = if (left < 60) p.bad else p.muted, fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold, modifier = Modifier.testTag("q-timer"))
+                } else {
+                    Text("Score: ${quiz.score}", color = p.muted, fontSize = 12.sp)
+                }
             }
         }
     }
@@ -116,41 +150,55 @@ private fun QuizRunning(vm: TrainerViewModel, course: Course, quiz: ActiveQuiz) 
         QuizCard(vm, quiz, card, onQuit = { confirmQuit = true })
         return
     }
-    val q = course.question(quiz.pool[quiz.idx]) ?: return
+    val itemKey = quiz.pool[quiz.idx]
+    val q = quiz.question(course) ?: return
     Panel(pad = 18) {
         Column {
-            Text(q.chapter.uppercase(), color = p.muted, fontSize = 11.sp, letterSpacing = 1.sp)
-            q.section?.takeIf { it.isNotBlank() }?.let {
-                Text(it, color = p.muted, fontSize = 12.sp, fontStyle = FontStyle.Italic, modifier = Modifier.padding(top = 2.dp))
+            SelectionContainer {
+                Column {
+                    Text(q.chapter.uppercase(), color = p.muted, fontSize = 11.sp, letterSpacing = 1.sp)
+                    q.section?.takeIf { it.isNotBlank() }?.let {
+                        Text(it, color = p.muted, fontSize = 12.sp, fontStyle = FontStyle.Italic, modifier = Modifier.padding(top = 2.dp))
+                    }
+                    Text(q.question, color = p.text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, lineHeight = 24.sp,
+                        modifier = Modifier.padding(top = 12.dp, bottom = 14.dp).testTag("q-text"))
+                }
             }
-            Text(q.question, color = p.text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, lineHeight = 24.sp,
-                modifier = Modifier.padding(top = 12.dp, bottom = 14.dp))
+            q.image?.let { Figure(it, Modifier.padding(bottom = 14.dp)) }
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 q.options.forEachIndexed { i, text ->
                     val state = when {
                         picked == null -> 0
+                        quiz.exam -> if (i == picked) 3 else 0 // exam: just show the pick
                         i == q.correct -> 1
                         i == picked -> 2
                         else -> 0
                     }
-                    OptionRow(i, text, state, enabled = picked == null) { vm.pick(i) }
+                    OptionRow(i, text, state, enabled = picked == null || quiz.exam) { vm.pick(i) }
                 }
             }
-            if (picked != null) Feedback(course, q, picked == q.correct)
+            if (picked != null && !quiz.exam) Feedback(course, q, picked == q.correct)
         }
     }
     Row(Modifier.padding(top = 10.dp), horizontalArrangement = Gap8) {
         Btn("Quit", { confirmQuit = true }, Modifier.weight(1f), BtnKind.GHOST)
         Btn(if (quiz.isLast) "Finish" else "Next →", vm::nextQuestion, Modifier.weight(1f).testTag("q-next"), BtnKind.PRIMARY, enabled = picked != null)
     }
+    if (picked != null && !quiz.exam && !Drills.isDrill(itemKey)) {
+        key(itemKey) { NoteAndCopy(vm, itemKey, questionCopy(q), Modifier.padding(top = 8.dp)) }
+    }
 }
 
-/** state: 0 plain, 1 correct (green), 2 wrong pick (red). */
+private fun questionCopy(q: com.abeswastaken.studytrainer.core.QuizQuestion): String =
+    q.question + "\n" + q.options.mapIndexed { i, o -> "${QuizText.letter(i)}. $o" }.joinToString("\n") +
+        "\nAnswer: ${QuizText.letter(q.correct)}. ${q.correctText}" + (q.ref?.takeIf { it.isNotBlank() }?.let { " ($it)" } ?: "")
+
+/** state: 0 plain, 1 correct (green), 2 wrong pick (red), 3 picked in an exam (accent, no verdict). */
 @Composable
 private fun OptionRow(i: Int, text: String, state: Int, enabled: Boolean, onClick: () -> Unit) {
     val p = LocalPalette.current
     val shape = RoundedCornerShape(12.dp)
-    val color = when (state) { 1 -> p.good; 2 -> p.bad; else -> null }
+    val color = when (state) { 1 -> p.good; 2 -> p.bad; 3 -> p.accent; else -> null }
     Row(
         Modifier
             .fillMaxWidth()
@@ -179,6 +227,7 @@ private fun Feedback(course: Course, q: com.abeswastaken.studytrainer.core.QuizQ
     val p = LocalPalette.current
     val c = if (correct) p.good else p.bad
     val shape = RoundedCornerShape(12.dp)
+    SelectionContainer {
     Column(
         Modifier
             .padding(top = 14.dp)
@@ -201,7 +250,7 @@ private fun Feedback(course: Course, q: com.abeswastaken.studytrainer.core.QuizQ
                 },
                 color = p.text, fontSize = 15.sp, modifier = Modifier.padding(top = 4.dp),
             )
-            Explain.find(course, q)?.let { card ->
+            (if (q.chapter == Drills.CHAPTER) null else Explain.find(course, q))?.let { card ->
                 HorizontalDivider(Modifier.padding(top = 8.dp), color = p.border)
                 Text(
                     buildAnnotatedString {
@@ -214,10 +263,11 @@ private fun Feedback(course: Course, q: com.abeswastaken.studytrainer.core.QuizQ
             }
         }
     }
+    }
 }
 
 @Composable
-private fun QuizDone(vm: TrainerViewModel, quiz: ActiveQuiz) {
+private fun QuizDone(vm: TrainerViewModel, course: Course, quiz: ActiveQuiz) {
     val p = LocalPalette.current
     val total = quiz.questionCount
     val pct = if (total == 0) 0 else (quiz.score * 100.0 / total).roundToInt()
@@ -236,10 +286,50 @@ private fun QuizDone(vm: TrainerViewModel, quiz: ActiveQuiz) {
             }
             if (quiz.reviewing) {
                 Text("Review round: not logged in History.", color = p.muted, fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp))
+            } else if (quiz.drill) {
+                Text("Practice drills: not logged in History.", color = p.muted, fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp))
             }
             Row(Modifier.padding(top = 18.dp), horizontalArrangement = Gap8) {
                 if (quiz.wrongKeys().isNotEmpty()) Btn("Review wrong", vm::reviewWrong, Modifier.weight(1f), BtnKind.GHOST)
-                Btn("New quiz", vm::endQuiz, Modifier.weight(1f), BtnKind.PRIMARY)
+                Btn("New quiz", vm::endQuiz, Modifier.weight(1f).testTag("q-new"), BtnKind.PRIMARY)
+            }
+        }
+    }
+    if (quiz.exam) ExamReview(course, quiz)
+}
+
+/** After an exam: how each chapter went, then every miss with the right answer and page. */
+@Composable
+private fun ExamReview(course: Course, quiz: ActiveQuiz) {
+    val p = LocalPalette.current
+    val run = remember(quiz) { quiz.toRun(course, 0) }
+    Spacer(Modifier.height(SectionGap))
+    Panel {
+        Column {
+            Text("By chapter", color = p.text, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(bottom = 8.dp))
+            run.byChapter.forEach { (ch, sc) ->
+                val pct = if (sc.total == 0) 0 else (sc.right * 100.0 / sc.total).roundToInt()
+                Row(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+                    Text(shortChapter(ch), color = p.text, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                    Text("${sc.right}/${sc.total} · $pct%", color = if (pct >= 70) p.good else p.bad, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
+    }
+    if (run.wrong.isNotEmpty()) {
+        Spacer(Modifier.height(SectionGap))
+        Panel {
+            SelectionContainer {
+                Column {
+                    Text("Missed (${run.wrong.size})", color = p.text, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(bottom = 8.dp))
+                    run.wrong.forEach { w ->
+                        Column(Modifier.padding(bottom = 12.dp).testTag("exam-miss")) {
+                            Text(w.question, color = p.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                            Text("You: ${w.pickedText.ifBlank { "—" }}", color = p.bad, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp))
+                            Text("Correct: ${w.correctText}" + if (w.ref.isNotBlank()) "  (${w.ref})" else "", color = p.good, fontSize = 13.sp)
+                        }
+                    }
+                }
             }
         }
     }
@@ -256,13 +346,18 @@ private fun QuizCard(vm: TrainerViewModel, quiz: ActiveQuiz, card: Flashcard, on
             Text("FLASHCARD · " + card.chapter.uppercase(), color = p.muted, fontSize = 11.sp, letterSpacing = 1.sp,
                 textAlign = TextAlign.Center)
             Text("DEFINITION", color = p.muted, fontSize = 11.sp, letterSpacing = 1.sp, modifier = Modifier.padding(top = 14.dp))
-            Text(card.definition, color = p.text, fontSize = 16.sp, lineHeight = 24.sp, textAlign = TextAlign.Center,
-                modifier = Modifier.padding(top = 8.dp).testTag("qc-def"))
+            SelectionContainer {
+                Text(card.definition, color = p.text, fontSize = 16.sp, lineHeight = 24.sp, textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(top = 8.dp).testTag("qc-def"))
+            }
+            card.image?.let { Figure(it, Modifier.padding(top = 10.dp)) }
             if (shown || answered) {
                 HorizontalDivider(Modifier.padding(vertical = 14.dp), color = p.border)
                 Text("TERM", color = p.muted, fontSize = 11.sp, letterSpacing = 1.sp)
-                Text(card.term, color = p.text, fontSize = 22.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(top = 6.dp).testTag("qc-term"))
+                SelectionContainer {
+                    Text(card.term, color = p.text, fontSize = 22.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(top = 6.dp).testTag("qc-term"))
+                }
                 card.ref?.takeIf { it.isNotBlank() }?.let {
                     Text(it, color = p.muted, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp))
                 }
@@ -283,4 +378,5 @@ private fun QuizCard(vm: TrainerViewModel, quiz: ActiveQuiz, card: Flashcard, on
             Btn("✓ Got it", { vm.markQuizCard(true) }, Modifier.weight(1f).testTag("qc-known"), BtnKind.GOOD)
         }
     }
+    if (shown || answered) key(card.key) { NoteAndCopy(vm, card.key, copyText(card), Modifier.padding(top = 8.dp)) }
 }

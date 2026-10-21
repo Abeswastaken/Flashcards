@@ -124,6 +124,7 @@ fun FlashTab(vm: TrainerViewModel, course: Course) {
                 FlipCard(card, vm.statuses[card?.key ?: ""], flipped, Deck.emptyMessage(filter)) { flipped = !flipped }
             }
         }
+        card?.image?.let { Figure(it, Modifier.padding(top = 10.dp)) }
         Spacer(Modifier.height(SectionGap))
 
         Row(horizontalArrangement = Gap8) {
@@ -134,6 +135,9 @@ fun FlashTab(vm: TrainerViewModel, course: Course) {
         Row(Modifier.padding(top = 8.dp), horizontalArrangement = Gap8) {
             Btn("✗ Still learning", { vm.mark(CardStatus.LEARNING) }, Modifier.weight(1f), BtnKind.BAD)
             Btn("✓ Got it", { vm.mark(CardStatus.KNOWN) }, Modifier.weight(1f), BtnKind.GOOD)
+        }
+        if (card != null) {
+            key(card.key) { NoteAndCopy(vm, card.key, copyText(card), Modifier.padding(top = 8.dp)) }
         }
         Footer(course.meta.source.ifBlank { course.meta.title })
     }
@@ -196,3 +200,7 @@ private fun FlipCard(card: Flashcard?, status: CardStatus?, flipped: Boolean, em
         }
     }
 }
+
+/** What ⧉ Copy puts on the clipboard for a card. */
+fun copyText(card: Flashcard): String =
+    "${card.term}: ${card.definition}" + (card.ref?.takeIf { it.isNotBlank() }?.let { " ($it)" } ?: "")

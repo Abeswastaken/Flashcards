@@ -14,7 +14,8 @@ enum class CardFilter(val stored: String, val label: String) {
     ALL("all", "All cards"),
     LEARNING("learning", "⟳ Still learning"),
     UNSEEN("unseen", "Not reviewed"),
-    KNOWN("known", "✓ Known");
+    KNOWN("known", "✓ Known"),
+    DUE("due", "⏰ Due today");
 
     companion object {
         fun of(s: String?): CardFilter = entries.firstOrNull { it.stored == s } ?: ALL
@@ -54,6 +55,8 @@ object Deck {
         statuses: Map<String, CardStatus>,
         random: Boolean,
         seed: Long,
+        /** Keys due for review today ([Srs.due]); used by the Due filter. */
+        due: Set<String> = emptySet(),
     ): List<Flashcard> {
         val chapters = ChapterScope.chapters(course, chapter).toSet()
         var all = course.flashcards.filter { it.chapter in chapters }
@@ -64,6 +67,7 @@ object Deck {
                     CardFilter.LEARNING -> st == CardStatus.LEARNING
                     CardFilter.KNOWN -> st == CardStatus.KNOWN
                     CardFilter.UNSEEN -> st == null
+                    CardFilter.DUE -> it.key in due
                     CardFilter.ALL -> true
                 }
             }
@@ -84,6 +88,7 @@ object Deck {
         CardFilter.LEARNING -> "No cards in \"Still learning\" for this chapter."
         CardFilter.KNOWN -> "No \"Known\" cards here yet."
         CardFilter.UNSEEN -> "All cards in this chapter have been reviewed."
+        CardFilter.DUE -> "Nothing due today. Cards you mark come back here when it's time to review them."
         CardFilter.ALL -> "No cards."
     }
 }
