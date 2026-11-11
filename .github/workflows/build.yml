@@ -36,6 +36,7 @@ jobs:
         with:
           name: study-trainer
           path: study-trainer-*.apk
+          retention-days: 3
 
   # Boots a real Android emulator and runs the on-device tests (database and a walk through the app).
   device-tests:
@@ -74,6 +75,7 @@ jobs:
         with:
           name: device-test-report
           path: app/build/reports/androidTests/
+          retention-days: 3
 
   # Every build of main that passes both jobs becomes a release with a direct APK download.
   release:
